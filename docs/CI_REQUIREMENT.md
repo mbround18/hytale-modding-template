@@ -10,6 +10,22 @@ The build process requires `HytaleServer.jar` at compile time as a `compileOnly`
 
 **Solution:** Provide a direct download URL for the server jar via the `HYTALE_SERVER_JAR_DOWNLOAD_URL` environment variable.
 
+**⚠️ CRITICAL - IP PROTECTION:** The download URL **MUST** be behind a secure source to prevent unauthorized distribution of proprietary Hytale server code. This is not optional.
+
+**Secure sources include:**
+
+- **Google Drive** with restricted sharing (link-only, no public access)
+- **OneDrive** with restricted access policies
+- **AWS S3** with signed URLs or dedicated API keys (never use public buckets)
+- **Private artifact repositories** (Artifactory, Nexus, etc.) with authentication
+- **Other private cloud storage** with access controls
+
+**⚠️ DO NOT use:**
+
+- Public GitHub Releases
+- Public file hosting services
+- Any publicly accessible URL without authentication
+
 **⚠️ IMPORTANT:** The URL must be a **direct download link** that returns the JAR file directly, not an HTML page. For services like Google Drive or Dropbox, ensure you use the direct download URL format (not the sharing page URL). The download uses `curl -L` to follow redirects, but the final response must be the actual JAR file.
 
 ### Setting Up in GitHub Actions
@@ -36,10 +52,20 @@ The build process requires `HytaleServer.jar` at compile time as a `compileOnly`
 
 ## Security Considerations
 
-- **Never commit the jar to git** - Contains proprietary Hytale server code
-- Use GitHub Secrets or equivalent for the download URL
-- Consider using a private repository or authentication if the jar shouldn't be publicly accessible
+**PIRACY PREVENTION:**
+
+- **Never make the JAR publicly accessible** - This is proprietary Hytale server code owned by Hypixel Studios
+- The download URL must be restricted to authorized users only via authentication or access controls
+- Do not commit the URL to public repositories; use GitHub Secrets exclusively
+- Regular audit of who has access to the download source
+
+**Best Practices:**
+
+- Use API keys, signed URLs, or authentication tokens for downloads
+- Rotate credentials periodically
+- Consider using a private repository for additional access tracking
 - The jar is only needed at compile time for API references, not bundled in the final plugin
+- Never distribute the JAR outside your organization
 
 ## Local Development
 

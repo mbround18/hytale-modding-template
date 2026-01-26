@@ -40,24 +40,31 @@ jar {
     }
 }
 
+def authorsJsonProvider = project.objects.property(String)
+authorsJsonProvider.convention('[\n  {\n    "Name": "Example Dev",\n    "Email": "dev@example.com",\n    "Url": ""\n  }\n]')
+
 tasks.register("generateAuthors") {
     group = "build"
     description = "Extract commit authors from git history"
+    def authorsOutput = authorsJsonProvider
     doLast {
         def authorsJson = "[]"
         try {
-            def gitLog = new ByteArrayOutputStream()
-            exec {
-                commandLine "git", "log", "--format=%an|%ae"
-                standardOutput = gitLog
-                ignoreExitValue = true
+            def gitProcess = new ProcessBuilder(["git", "log", "--format=%an|%ae"]).redirectErrorStream(true).start()
+            def gitLog = new StringBuilder()
+            gitProcess.inputStream.newReader().eachLine { line ->
+                gitLog.append(line).append('\n')
             }
+            int gitExit = gitProcess.waitFor()
             def authors = gitLog.toString().readLines()
                 .collect { it.split("\\|") }
                 .findAll { it.size() == 2 }
                 .collect { [name: it[0].trim(), email: it[1].trim()] }
                 .unique { [it.name, it.email] }
             
+            if (gitExit != 0) {
+                logger.warn("git log exited with code ${gitExit}; falling back to default author")
+            }
             if (authors.isEmpty()) {
                 authors = [[name: "Example Dev", email: "dev@example.com"]]
             }
@@ -75,19 +82,20 @@ tasks.register("generateAuthors") {
             logger.warn("Failed to extract git authors: ${e.message}")
             authorsJson = '[\n  {\n    "Name": "Example Dev",\n    "Email": "dev@example.com",\n    "Url": ""\n  }\n]'
         }
-        project.ext.authorsJson = authorsJson
+        authorsOutput.set(authorsJson)
     }
 }
 
 processResources {
     dependsOn "generateAuthors"
+    def authorsJson = authorsJsonProvider
     filesMatching('plugin.properties') {
         expand(version: project.version)
     }
     filesMatching('manifest.json') {
         expand(version: project.version)
         filter { line ->
-            line.replace('"GRADLE_INJECT_AUTHORS"', project.ext.authorsJson)
+            line.replace('"GRADLE_INJECT_AUTHORS"', authorsJson.get())
         }
     }
 }

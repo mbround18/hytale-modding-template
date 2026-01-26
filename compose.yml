@@ -10,6 +10,7 @@ services:
       # - MODPACK_URL=https://example.com/modpack.zip
       # - MODPACK_FORMAT=zip
       # - ALWAYS_DOWNLOAD_MODPACK=false
+      - MODS=https://github.com/mbround18/hytale-modding-template/releases/download/v0.0.0-demo-release.1/HelloWorld-0.1.0.jar,https://github.com/mbround18/hytale-modding-template/releases/download/v0.0.0-demo-release.1/HelloWorld.zip
       - PATCHLINE=release
       - LOG_LEVEL=ALL
       - SERVER_PORT=5520

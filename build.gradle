@@ -65,30 +65,38 @@ tasks.register("ensureServerJar") {
             logger.lifecycle("Downloading HytaleServer.jar from URL...")
             serverJar.parentFile.mkdirs()
             
+            def tempFile = new File(serverJar.parentFile, "HytaleServer.jar.tmp")
+            tempFile.delete() // Clean up any previous failed download
+            
             // Use curl with follow redirects and progress for large files
             def result = exec {
-                commandLine "curl", "-L", "-o", serverJar.absolutePath, "--fail", "--progress-bar", downloadUrl
+                commandLine "curl", "-L", "-o", tempFile.absolutePath, "--fail", "--progress-bar", downloadUrl
                 ignoreExitValue = true
             }
             
             if (result.exitValue != 0) {
-                serverJar.delete() // Clean up partial download
+                tempFile.delete()
                 throw new IllegalStateException(
                     "Failed to download HytaleServer.jar (curl exit code: ${result.exitValue}). " +
                     "Verify HYTALE_SERVER_JAR_DOWNLOAD_URL is a valid direct download link."
                 )
             }
             
-            // Verify the downloaded file is a valid zip/jar
-            if (!serverJar.exists() || serverJar.length() < 1024 * 1024) {
-                serverJar.delete()
+            // Verify the downloaded file is valid
+            if (!tempFile.exists() || tempFile.length() < 1024 * 1024) {
+                def actualSize = tempFile.exists() ? tempFile.length() : 0
+                tempFile.delete()
                 throw new IllegalStateException(
-                    "Downloaded HytaleServer.jar is missing or too small (${serverJar.length()} bytes). " +
-                    "Expected at least 1MB. Verify the download URL provides a direct file download."
+                    "Downloaded HytaleServer.jar is missing or too small (${actualSize} bytes). " +
+                    "Expected at least 1MB. Verify the download URL provides a direct file download, not an HTML page."
                 )
             }
             
-            logger.lifecycle("Downloaded ${serverJar} successfully (${serverJar.length()} bytes)")
+            // Move temp file to final location
+            serverJar.delete()
+            tempFile.renameTo(serverJar)
+            
+            logger.lifecycle("Downloaded ${serverJar.name} successfully (${String.format('%.2f', serverJar.length() / (1024 * 1024))} MB)")
             return
         }
         if (!composeFile.exists()) {

@@ -32,6 +32,7 @@ The build process requires `HytaleServer.jar` at compile time as a `compileOnly`
 4. **Update Workflow:**
    - The CI workflow will automatically use this variable when available
    - If not set, builds will fail with a clear error message
+   - The jar is cached between runs (keyed on `compose.yml` hash), so it only downloads once per server version
 
 ### Example GitHub Release Approach
 

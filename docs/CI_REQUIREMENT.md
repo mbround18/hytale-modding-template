@@ -34,24 +34,9 @@ The build process requires `HytaleServer.jar` at compile time as a `compileOnly`
    - If not set, builds will fail with a clear error message
    - The jar is cached between runs (keyed on `compose.yml` hash), so it only downloads once per server version
 
-### Example GitHub Release Approach
-
-> We highly recommend a secure source like Google Drive, OneDrive, S3, etc
-
-```bash
-# After running ./gradlew setup locally
-cd data/server/Server
-gh release create server-jar-v1 HytaleServer.jar --repo your-username/your-repo --notes "Hytale Server JAR for CI"
-
-# Get the download URL
-gh release view server-jar-v1 --repo your-username/your-repo --json assets
-```
-
-Then set the asset's `browser_download_url` as the `HYTALE_SERVER_JAR_DOWNLOAD_URL` secret.
-
 ## Security Considerations
 
-- **Never commit the jar to git** - it's ~3GB and contains proprietary Hytale server code
+- **Never commit the jar to git** - Contains proprietary Hytale server code
 - Use GitHub Secrets or equivalent for the download URL
 - Consider using a private repository or authentication if the jar shouldn't be publicly accessible
 - The jar is only needed at compile time for API references, not bundled in the final plugin

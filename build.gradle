@@ -82,13 +82,51 @@ tasks.register("ensureServerJar") {
                 )
             }
             
-            // Verify the downloaded file is valid
+            // Verify the downloaded file exists and has reasonable size
             if (!tempFile.exists() || tempFile.length() < 1024 * 1024) {
                 def actualSize = tempFile.exists() ? tempFile.length() : 0
+                def preview = ""
+                if (tempFile.exists() && tempFile.length() > 0) {
+                    def content = tempFile.text.take(500)
+                    preview = "\n\nFirst 500 chars of downloaded file:\n${content}"
+                }
                 tempFile.delete()
                 throw new IllegalStateException(
                     "Downloaded HytaleServer.jar is missing or too small (${actualSize} bytes). " +
-                    "Expected at least 1MB. Verify the download URL provides a direct file download, not an HTML page."
+                    "Expected at least 1MB (actual jar is ~80MB). " +
+                    "Verify the download URL provides a direct file download, not an HTML page or sharing link." +
+                    preview
+                )
+            }
+            
+            // Verify the downloaded file is a valid JAR/ZIP
+            def isValidJar = false
+            def jarError = ""
+            try {
+                def zipFile = new java.util.zip.ZipFile(tempFile)
+                try {
+                    // Check if it has at least one entry (valid ZIP structure)
+                    isValidJar = zipFile.entries().hasMoreElements()
+                } finally {
+                    zipFile.close()
+                }
+            } catch (Exception e) {
+                jarError = e.message
+            }
+            
+            if (!isValidJar) {
+                def preview = ""
+                if (tempFile.length() > 0) {
+                    def content = tempFile.text.take(500)
+                    preview = "\n\nFirst 500 chars of downloaded file:\n${content}"
+                }
+                tempFile.delete()
+                throw new IllegalStateException(
+                    "Downloaded file is not a valid JAR/ZIP file. " +
+                    "Size: ${tempFile.length()} bytes. " +
+                    "Error: ${jarError}. " +
+                    "Verify HYTALE_SERVER_JAR_DOWNLOAD_URL is a direct download link to the JAR file." +
+                    preview
                 )
             }
             

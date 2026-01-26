@@ -62,10 +62,33 @@ tasks.register("ensureServerJar") {
                     "See docs/CI_REQUIREMENT.md for details."
                 )
             }
-            logger.lifecycle("Downloading HytaleServer.jar from ${downloadUrl}...")
+            logger.lifecycle("Downloading HytaleServer.jar from URL...")
             serverJar.parentFile.mkdirs()
-            ant.get(src: downloadUrl, dest: serverJar, verbose: true)
-            logger.lifecycle("Downloaded ${serverJar} successfully")
+            
+            // Use curl with follow redirects and progress for large files
+            def result = exec {
+                commandLine "curl", "-L", "-o", serverJar.absolutePath, "--fail", "--progress-bar", downloadUrl
+                ignoreExitValue = true
+            }
+            
+            if (result.exitValue != 0) {
+                serverJar.delete() // Clean up partial download
+                throw new IllegalStateException(
+                    "Failed to download HytaleServer.jar (curl exit code: ${result.exitValue}). " +
+                    "Verify HYTALE_SERVER_JAR_DOWNLOAD_URL is a valid direct download link."
+                )
+            }
+            
+            // Verify the downloaded file is a valid zip/jar
+            if (!serverJar.exists() || serverJar.length() < 1024 * 1024) {
+                serverJar.delete()
+                throw new IllegalStateException(
+                    "Downloaded HytaleServer.jar is missing or too small (${serverJar.length()} bytes). " +
+                    "Expected at least 1MB. Verify the download URL provides a direct file download."
+                )
+            }
+            
+            logger.lifecycle("Downloaded ${serverJar} successfully (${serverJar.length()} bytes)")
             return
         }
         if (!composeFile.exists()) {

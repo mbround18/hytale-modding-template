@@ -10,6 +10,8 @@ The build process requires `HytaleServer.jar` at compile time as a `compileOnly`
 
 **Solution:** Provide a direct download URL for the server jar via the `HYTALE_SERVER_JAR_DOWNLOAD_URL` environment variable.
 
+**⚠️ IMPORTANT:** The URL must be a **direct download link** that returns the JAR file directly, not an HTML page. For services like Google Drive or Dropbox, ensure you use the direct download URL format (not the sharing page URL). The download uses `curl -L` to follow redirects, but the final response must be the actual JAR file.
+
 ### Setting Up in GitHub Actions
 
 1. **Obtain the Server JAR:**

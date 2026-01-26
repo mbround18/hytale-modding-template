@@ -20,8 +20,11 @@ def ensureDirectoryOwned(File dir) {
             throw new IllegalStateException("Failed to create directory ${dir}")
         }
     }
-    exec {
-        commandLine "chown", "1000:1000", dir.absolutePath
+    // Skip chown in CI environments (GitHub Actions, etc.)
+    if (!System.getenv("CI")) {
+        exec {
+            commandLine "chown", "1000:1000", dir.absolutePath
+        }
     }
 }
 
@@ -50,6 +53,90 @@ tasks.register("ensureServerJar") {
     dependsOn "ensureDirectories"
     onlyIf { !serverJar.exists() }
     doLast {
+        if (System.getenv("CI")) {
+            def downloadUrl = System.getenv("HYTALE_SERVER_JAR_DOWNLOAD_URL")
+            if (!downloadUrl) {
+                throw new IllegalStateException(
+                    "HytaleServer.jar not found in CI. " +
+                    "Set HYTALE_SERVER_JAR_DOWNLOAD_URL environment variable to download the jar. " +
+                    "See docs/CI_REQUIREMENT.md for details."
+                )
+            }
+            logger.lifecycle("Downloading HytaleServer.jar from URL...")
+            serverJar.parentFile.mkdirs()
+            
+            def tempFile = new File(serverJar.parentFile, "HytaleServer.jar.tmp")
+            tempFile.delete() // Clean up any previous failed download
+            
+            // Use curl with follow redirects and progress for large files
+            def result = exec {
+                commandLine "curl", "-L", "-o", tempFile.absolutePath, "--fail", "--progress-bar", downloadUrl
+                ignoreExitValue = true
+            }
+            
+            if (result.exitValue != 0) {
+                tempFile.delete()
+                throw new IllegalStateException(
+                    "Failed to download HytaleServer.jar (curl exit code: ${result.exitValue}). " +
+                    "Verify HYTALE_SERVER_JAR_DOWNLOAD_URL is a valid direct download link."
+                )
+            }
+            
+            // Verify the downloaded file exists and has reasonable size
+            if (!tempFile.exists() || tempFile.length() < 1024 * 1024) {
+                def actualSize = tempFile.exists() ? tempFile.length() : 0
+                def preview = ""
+                if (tempFile.exists() && tempFile.length() > 0) {
+                    def content = tempFile.text.take(500)
+                    preview = "\n\nFirst 500 chars of downloaded file:\n${content}"
+                }
+                tempFile.delete()
+                throw new IllegalStateException(
+                    "Downloaded HytaleServer.jar is missing or too small (${actualSize} bytes). " +
+                    "Expected at least 1MB (actual jar is ~80MB). " +
+                    "Verify the download URL provides a direct file download, not an HTML page or sharing link." +
+                    preview
+                )
+            }
+            
+            // Verify the downloaded file is a valid JAR/ZIP
+            def isValidJar = false
+            def jarError = ""
+            try {
+                def zipFile = new java.util.zip.ZipFile(tempFile)
+                try {
+                    // Check if it has at least one entry (valid ZIP structure)
+                    isValidJar = zipFile.entries().hasMoreElements()
+                } finally {
+                    zipFile.close()
+                }
+            } catch (Exception e) {
+                jarError = e.message
+            }
+            
+            if (!isValidJar) {
+                def preview = ""
+                if (tempFile.length() > 0) {
+                    def content = tempFile.text.take(500)
+                    preview = "\n\nFirst 500 chars of downloaded file:\n${content}"
+                }
+                tempFile.delete()
+                throw new IllegalStateException(
+                    "Downloaded file is not a valid JAR/ZIP file. " +
+                    "Size: ${tempFile.length()} bytes. " +
+                    "Error: ${jarError}. " +
+                    "Verify HYTALE_SERVER_JAR_DOWNLOAD_URL is a direct download link to the JAR file." +
+                    preview
+                )
+            }
+            
+            // Move temp file to final location
+            serverJar.delete()
+            tempFile.renameTo(serverJar)
+            
+            logger.lifecycle("Downloaded ${serverJar.name} successfully (${String.format('%.2f', serverJar.length() / (1024 * 1024))} MB)")
+            return
+        }
         if (!composeFile.exists()) {
             throw new IllegalStateException("Missing compose file at ${composeFile}")
         }

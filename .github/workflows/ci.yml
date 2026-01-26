@@ -3,10 +3,14 @@ name: CI/CD
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
   push:
     branches: [main]
     tags:
       - "v*"
+    paths-ignore:
+      - "docs/**"
 
 jobs:
   build:
@@ -21,29 +25,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Java 25
+      - name: Set up Java 25 (for plugin compilation)
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0, https://github.com/actions/setup-java/releases/tag/v5.2.0
         with:
           distribution: "temurin"
           java-version: "25"
 
-      - name: Set up Java 25 (for Gradle daemon)
+      - name: Set up Java 21 (for Gradle daemon)
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0, https://github.com/actions/setup-java/releases/tag/v5.2.0
         with:
           distribution: "temurin"
-          java-version: "25"
-
-      - name: Configure Gradle to use Java 25
-        run: |
-          echo "org.gradle.java.home=$JAVA_HOME" > gradle.properties.tmp
-          cat gradle.properties >> gradle.properties.tmp
-          mv gradle.properties.tmp gradle.properties
+          java-version: "21"
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Build with Gradle
         run: ./gradlew build --no-daemon
+        env:
+          HYTALE_SERVER_JAR_DOWNLOAD_URL: ${{ secrets.HYTALE_SERVER_JAR_DOWNLOAD_URL }}
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0, https://github.com/actions/upload-artifact/releases/tag/v6.0.0

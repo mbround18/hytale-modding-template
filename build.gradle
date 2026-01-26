@@ -20,8 +20,11 @@ def ensureDirectoryOwned(File dir) {
             throw new IllegalStateException("Failed to create directory ${dir}")
         }
     }
-    exec {
-        commandLine "chown", "1000:1000", dir.absolutePath
+    // Skip chown in CI environments (GitHub Actions, etc.)
+    if (!System.getenv("CI")) {
+        exec {
+            commandLine "chown", "1000:1000", dir.absolutePath
+        }
     }
 }
 
@@ -50,6 +53,21 @@ tasks.register("ensureServerJar") {
     dependsOn "ensureDirectories"
     onlyIf { !serverJar.exists() }
     doLast {
+        if (System.getenv("CI")) {
+            def downloadUrl = System.getenv("HYTALE_SERVER_JAR_DOWNLOAD_URL")
+            if (!downloadUrl) {
+                throw new IllegalStateException(
+                    "HytaleServer.jar not found in CI. " +
+                    "Set HYTALE_SERVER_JAR_DOWNLOAD_URL environment variable to download the jar. " +
+                    "See docs/CI_REQUIREMENT.md for details."
+                )
+            }
+            logger.lifecycle("Downloading HytaleServer.jar from ${downloadUrl}...")
+            serverJar.parentFile.mkdirs()
+            ant.get(src: downloadUrl, dest: serverJar, verbose: true)
+            logger.lifecycle("Downloaded ${serverJar} successfully")
+            return
+        }
         if (!composeFile.exists()) {
             throw new IllegalStateException("Missing compose file at ${composeFile}")
         }

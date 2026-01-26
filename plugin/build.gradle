@@ -1,0 +1,93 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.example.hytale'
+version = '0.1.0'
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+dependencies {
+    compileOnly files("${rootProject.projectDir}/data/server/Server/HytaleServer.jar")
+    compileOnly 'javax.annotation:javax.annotation-api:1.3.2'
+    compileOnly 'org.slf4j:slf4j-api:2.0.7'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    dependsOn(rootProject.tasks.named("ensureServerJar"))
+}
+
+jar {
+    archiveBaseName.set("HelloWorld")
+    manifest {
+        attributes(
+                'Plugin-Main': 'com.example.hytale.helloworld.HelloWorldPlugin',
+                'Plugin-Name': 'HelloWorld',
+                'Plugin-Version': project.version,
+                'Implementation-Title': 'HelloWorld',
+                'Implementation-Version': project.version
+        )
+    }
+}
+
+tasks.register("generateAuthors") {
+    group = "build"
+    description = "Extract commit authors from git history"
+    doLast {
+        def authorsJson = "[]"
+        try {
+            def gitLog = new ByteArrayOutputStream()
+            exec {
+                commandLine "git", "log", "--format=%an|%ae"
+                standardOutput = gitLog
+                ignoreExitValue = true
+            }
+            def authors = gitLog.toString().readLines()
+                .collect { it.split("\\|") }
+                .findAll { it.size() == 2 }
+                .collect { [name: it[0].trim(), email: it[1].trim()] }
+                .unique { [it.name, it.email] }
+            
+            if (authors.isEmpty()) {
+                authors = [[name: "Example Dev", email: "dev@example.com"]]
+            }
+            
+            // Build JSON manually to avoid Groovy imports
+            def entries = authors.collect { author ->
+                """  {
+    "Name": "${author.name}",
+    "Email": "${author.email}",
+    "Url": ""
+  }"""
+            }.join(',\n')
+            authorsJson = "[\n${entries}\n]"
+        } catch (Exception e) {
+            logger.warn("Failed to extract git authors: ${e.message}")
+            authorsJson = '[\n  {\n    "Name": "Example Dev",\n    "Email": "dev@example.com",\n    "Url": ""\n  }\n]'
+        }
+        project.ext.authorsJson = authorsJson
+    }
+}
+
+processResources {
+    dependsOn "generateAuthors"
+    filesMatching('plugin.properties') {
+        expand(version: project.version)
+    }
+    filesMatching('manifest.json') {
+        expand(version: project.version)
+        filter { line ->
+            line.replace('"GRADLE_INJECT_AUTHORS"', project.ext.authorsJson)
+        }
+    }
+}

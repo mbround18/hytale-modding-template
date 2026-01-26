@@ -1,0 +1,21 @@
+services:
+  hytale-server:
+    image: mbround18/hytale:v0.0.11
+    user: "1000:1000"
+    stdin_open: true
+    tty: true
+    network_mode: host
+    environment:
+      # Optional modpack variables:
+      # - MODPACK_URL=https://example.com/modpack.zip
+      # - MODPACK_FORMAT=zip
+      # - ALWAYS_DOWNLOAD_MODPACK=false
+      - PATCHLINE=release
+      - LOG_LEVEL=ALL
+      - SERVER_PORT=5520
+      - SERVER_BIND=0.0.0.0
+      - DISABLE_SENTRY=false
+      - JAVA_OPTS=-Xmx4G -Xms2G
+    volumes:
+      - ./data/server:/data/server
+    restart: unless-stopped

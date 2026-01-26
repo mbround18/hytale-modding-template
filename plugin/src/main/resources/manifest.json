@@ -1,0 +1,9 @@
+{
+  "Group": "com.example",
+  "Name": "HelloWorld",
+  "Version": "${version}",
+  "Authors": "GRADLE_INJECT_AUTHORS",
+  "Website": "https://example.com",
+  "Main": "com.example.hytale.helloworld.HelloWorldPlugin",
+  "ServerVersion": "*"
+}

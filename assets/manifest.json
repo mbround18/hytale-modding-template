@@ -1,0 +1,19 @@
+{
+  "Group": "com.example",
+  "Name": "HelloWorld",
+  "Version": "0.1.0",
+  "Description": "Example Hytale mod template with plugin and assets",
+  "Authors": [
+    {
+      "Name": "Your Name",
+      "Email": "you@example.com",
+      "Url": "https://example.com"
+    }
+  ],
+  "Website": "https://example.com",
+  "ServerVersion": "*",
+  "Dependencies": {},
+  "OptionalDependencies": {},
+  "DisabledByDefault": false,
+  "IncludesAssetPack": true
+}

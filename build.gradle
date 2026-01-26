@@ -1,0 +1,245 @@
+plugins {
+    id 'base'
+}
+
+ext {
+    dataDir = file("data")
+    serverDir = file("data/server")
+    assetsDir = file("assets")
+    unpackedDir = file("data/unpacked")
+    serverJar = file("data/server/Server/HytaleServer.jar")
+    assetsZip = file("data/server/Assets.zip")
+    composeFile = file("compose.yml")
+    distDir = file("dist")
+    modsDir = file("data/server/Server/mods")
+}
+
+def ensureDirectoryOwned(File dir) {
+    if (!dir.exists()) {
+        if (!dir.mkdirs()) {
+            throw new IllegalStateException("Failed to create directory ${dir}")
+        }
+    }
+    exec {
+        commandLine "chown", "1000:1000", dir.absolutePath
+    }
+}
+
+def waitForFile(File target, int timeoutSeconds, int intervalSeconds) {
+    long deadline = System.currentTimeMillis() + (timeoutSeconds * 1000L)
+    while (System.currentTimeMillis() < deadline) {
+        if (target.exists()) {
+            return
+        }
+        sleep(intervalSeconds * 1000L)
+    }
+    throw new IllegalStateException("Timed out waiting for ${target}")
+}
+
+tasks.register("ensureDirectories") {
+    group = "setup"
+    description = "Ensure data directories exist with uid:gid 1000:1000"
+    doLast {
+        [serverDir, assetsDir, unpackedDir].each { dir -> ensureDirectoryOwned(dir) }
+    }
+}
+
+tasks.register("ensureServerJar") {
+    group = "setup"
+    description = "Start docker compose to produce HytaleServer.jar when missing"
+    dependsOn "ensureDirectories"
+    onlyIf { !serverJar.exists() }
+    doLast {
+        if (!composeFile.exists()) {
+            throw new IllegalStateException("Missing compose file at ${composeFile}")
+        }
+        logger.lifecycle("Launching docker compose to fetch HytaleServer.jar...")
+        logger.lifecycle("Container will require OAuth login - follow the logs below:")
+        exec {
+            commandLine "docker", "compose", "-f", composeFile.absolutePath, "up", "-d"
+        }
+        
+        // Follow logs and wait for boot message
+        def logsProcess = new ProcessBuilder("docker", "compose", "-f", composeFile.absolutePath, "logs", "-f")
+            .redirectErrorStream(true)
+            .start()
+        
+        def serverBooted = false
+        def logThread = Thread.start {
+            logsProcess.inputStream.eachLine { line ->
+                println(line)
+                if (line.contains("Hytale Server Booted!")) {
+                    serverBooted = true
+                }
+            }
+        }
+        
+        try {
+            // Wait for boot message with timeout
+            long deadline = System.currentTimeMillis() + (300 * 1000L)
+            while (!serverBooted && System.currentTimeMillis() < deadline) {
+                sleep(2000)
+            }
+            
+            if (!serverBooted) {
+                throw new IllegalStateException("Timed out waiting for 'Hytale Server Booted!' message")
+            }
+            
+            logger.lifecycle("Server booted successfully!")
+            
+            // Wait a bit more to ensure files are flushed
+            sleep(2000)
+            
+            if (!serverJar.exists()) {
+                throw new IllegalStateException("Server booted but ${serverJar} not found")
+            }
+            
+            logger.lifecycle("Found ${serverJar}")
+        } finally {
+            logsProcess.destroy()
+            logThread.join(1000)
+            exec {
+                commandLine "docker", "compose", "-f", composeFile.absolutePath, "down"
+            }
+        }
+    }
+}
+
+tasks.register("unpackAssets") {
+    group = "setup"
+    description = "Unzip Assets.zip into data/assets"
+    dependsOn "ensureDirectories"
+    mustRunAfter "ensureServerJar"
+    onlyIf { assetsZip.exists() }
+    doLast {
+        ant.unzip(src: assetsZip, dest: assetsDir, overwrite: true)
+    }
+}
+
+tasks.register("fetchUnpacked") {
+    group = "setup"
+    description = "Clone Ranork/Hytale-Server-Unpacked into data/unpacked (no submodule)"
+    dependsOn "ensureDirectories"
+    onlyIf {
+        !new File(unpackedDir, ".git").exists()
+    }
+    doLast {
+        if (unpackedDir.exists() && unpackedDir.listFiles()?.length > 0) {
+            throw new IllegalStateException("data/unpacked exists and is not empty; refusing to overwrite")
+        }
+        exec {
+            commandLine "git", "clone", "git@github.com:Ranork/Hytale-Server-Unpacked.git", unpackedDir.absolutePath
+        }
+        exec {
+            commandLine "chown", "-R", "1000:1000", unpackedDir.absolutePath
+        }
+    }
+}
+
+tasks.register("setup") {
+    group = "setup"
+    description = "Prepare local data, assets, and unpacked API"
+    dependsOn "ensureDirectories", "ensureServerJar", "unpackAssets", "fetchUnpacked"
+}
+
+tasks.register("ensureModsDir") {
+    group = "setup"
+    description = "Ensure server mods directory exists with uid:gid 1000:1000"
+    dependsOn "ensureDirectories"
+    doLast {
+        ensureDirectoryOwned(modsDir)
+    }
+}
+
+tasks.register("assetsZip", Zip) {
+    group = "build"
+    description = "Zip assets/ into dist/assets.zip with flattened root"
+    dependsOn "ensureDirectories"
+    archiveBaseName.set(project(":plugin").tasks.named("jar").get().archiveBaseName.get())
+    archiveExtension.set("zip")
+    destinationDirectory.set(distDir)
+    zip64 = true
+    from(assetsDir) {
+        into("")
+        exclude "**/.gitkeep"
+    }
+    doFirst {
+        distDir.mkdirs()
+    }
+}
+
+tasks.register("copyPluginJarToDist", Copy) {
+    group = "build"
+    description = "Copy plugin jar into dist"
+    dependsOn ":plugin:jar"
+    from { project(":plugin").tasks.named("jar").flatMap { it.archiveFile } }
+    into(distDir)
+    doFirst {
+        distDir.mkdirs()
+    }
+}
+
+tasks.register("installToServerMods") {
+    group = "distribution"
+    description = "Copy jar and assets.zip into data/server/Server/mods"
+    dependsOn "ensureModsDir", "assetsZip", "copyPluginJarToDist"
+    doLast {
+        copy {
+            from(project(":plugin").tasks.named("jar").flatMap { it.archiveFile })
+            from(tasks.named("assetsZip").flatMap { it.archiveFile })
+            into(modsDir)
+            duplicatesStrategy = DuplicatesStrategy.INCLUDE
+        }
+    }
+}
+
+tasks.named("assemble") {
+    dependsOn "copyPluginJarToDist", "assetsZip"
+}
+
+tasks.named("build") {
+    dependsOn "installToServerMods"
+}
+
+tasks.register("composeDown") {
+    group = "application"
+    description = "Stop docker compose stack if running"
+    doLast {
+        if (!composeFile.exists()) {
+            throw new IllegalStateException("Missing compose file at ${composeFile}")
+        }
+        def psOutput = new ByteArrayOutputStream()
+        exec {
+            commandLine "docker", "compose", "-f", composeFile.absolutePath, "ps", "-q"
+            standardOutput = psOutput
+            ignoreExitValue true
+        }
+        if (psOutput.toString().trim()) {
+            logger.lifecycle("Stopping existing compose stack before rebuild...")
+            exec {
+                commandLine "docker", "compose", "-f", composeFile.absolutePath, "down"
+            }
+        } else {
+            logger.lifecycle("No running compose stack detected; nothing to stop.")
+        }
+    }
+}
+
+tasks.named("build") {
+    mustRunAfter("composeDown")
+}
+
+tasks.register("start") {
+    group = "application"
+    description = "Run build then start docker compose in foreground"
+    dependsOn "composeDown", "build"
+    doLast {
+        if (!composeFile.exists()) {
+            throw new IllegalStateException("Missing compose file at ${composeFile}")
+        }
+        logger.lifecycle("Starting docker compose in foreground (logs attached)...")
+        exec {
+            commandLine "docker", "compose", "-f", composeFile.absolutePath, "up"
+        }
+    }
+}

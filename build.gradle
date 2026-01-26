@@ -5,13 +5,38 @@ plugins {
 ext {
     dataDir = file("data")
     serverDir = file("data/server")
-    assetsDir = file("assets")
+    userAssetsDir = file("assets") // user-authored assets for packing
+    serverAssetsDir = file("data/assets") // extracted vanilla assets from server Assets.zip
     unpackedDir = file("data/unpacked")
     serverJar = file("data/server/Server/HytaleServer.jar")
     assetsZip = file("data/server/Assets.zip")
     composeFile = file("compose.yml")
     distDir = file("dist")
     modsDir = file("data/server/Server/mods")
+}
+
+def runCommand(List<String> command, boolean ignoreExitValue = false, File workingDir = null, boolean quiet = false) {
+    def processBuilder = new ProcessBuilder(command)
+    if (workingDir != null) {
+        processBuilder.directory(workingDir)
+    }
+    processBuilder.redirectErrorStream(true)
+
+    def process = processBuilder.start()
+    def output = new StringBuilder()
+    process.inputStream.newReader().eachLine { line ->
+        output.append(line).append('\n')
+        if (!quiet) {
+            println(line)
+        }
+    }
+
+    int exitCode = process.waitFor()
+    if (exitCode != 0 && !ignoreExitValue) {
+        throw new IllegalStateException("Command failed (${command.join(' ')}), exit code ${exitCode}\n${output}")
+    }
+
+    return [exitCode: exitCode, output: output.toString()]
 }
 
 def ensureDirectoryOwned(File dir) {
@@ -22,9 +47,7 @@ def ensureDirectoryOwned(File dir) {
     }
     // Skip chown in CI environments (GitHub Actions, etc.)
     if (!System.getenv("CI")) {
-        exec {
-            commandLine "chown", "1000:1000", dir.absolutePath
-        }
+        runCommand(["chown", "1000:1000", dir.absolutePath])
     }
 }
 
@@ -42,8 +65,27 @@ def waitForFile(File target, int timeoutSeconds, int intervalSeconds) {
 tasks.register("ensureDirectories") {
     group = "setup"
     description = "Ensure data directories exist with uid:gid 1000:1000"
+    def dirs = [serverDir, userAssetsDir, serverAssetsDir, unpackedDir]
+    def isCI = System.getenv("CI")
     doLast {
-        [serverDir, assetsDir, unpackedDir].each { dir -> ensureDirectoryOwned(dir) }
+        dirs.each { dir ->
+            if (!dir.exists()) {
+                if (!dir.mkdirs()) {
+                    throw new IllegalStateException("Failed to create directory ${dir}")
+                }
+            }
+            if (!isCI) {
+                def proc = new ProcessBuilder(["chown", "1000:1000", dir.absolutePath])
+                    .redirectErrorStream(true)
+                    .start()
+                def output = new StringBuilder()
+                proc.inputStream.newReader().eachLine { output.append(it).append('\\n') }
+                int exitCode = proc.waitFor()
+                if (exitCode != 0) {
+                    throw new IllegalStateException("chown failed with exit code ${exitCode}\\n${output}")
+                }
+            }
+        }
     }
 }
 
@@ -69,15 +111,12 @@ tasks.register("ensureServerJar") {
             tempFile.delete() // Clean up any previous failed download
             
             // Use curl with follow redirects and progress for large files
-            def result = exec {
-                commandLine "curl", "-L", "-o", tempFile.absolutePath, "--fail", "--progress-bar", downloadUrl
-                ignoreExitValue = true
-            }
+            def result = runCommand(["curl", "-L", "-o", tempFile.absolutePath, "--fail", "--progress-bar", downloadUrl], true)
             
-            if (result.exitValue != 0) {
+            if (result.exitCode != 0) {
                 tempFile.delete()
                 throw new IllegalStateException(
-                    "Failed to download HytaleServer.jar (curl exit code: ${result.exitValue}). " +
+                    "Failed to download HytaleServer.jar (curl exit code: ${result.exitCode}). " +
                     "Verify HYTALE_SERVER_JAR_DOWNLOAD_URL is a valid direct download link."
                 )
             }
@@ -142,9 +181,7 @@ tasks.register("ensureServerJar") {
         }
         logger.lifecycle("Launching docker compose to fetch HytaleServer.jar...")
         logger.lifecycle("Container will require OAuth login - follow the logs below:")
-        exec {
-            commandLine "docker", "compose", "-f", composeFile.absolutePath, "up", "-d"
-        }
+        runCommand(["docker", "compose", "-f", composeFile.absolutePath, "up", "-d"])
         
         // Follow logs and wait for boot message
         def logsProcess = new ProcessBuilder("docker", "compose", "-f", composeFile.absolutePath, "logs", "-f")
@@ -185,9 +222,7 @@ tasks.register("ensureServerJar") {
         } finally {
             logsProcess.destroy()
             logThread.join(1000)
-            exec {
-                commandLine "docker", "compose", "-f", composeFile.absolutePath, "down"
-            }
+            runCommand(["docker", "compose", "-f", composeFile.absolutePath, "down"])
         }
     }
 }
@@ -199,7 +234,7 @@ tasks.register("unpackAssets") {
     mustRunAfter "ensureServerJar"
     onlyIf { assetsZip.exists() }
     doLast {
-        ant.unzip(src: assetsZip, dest: assetsDir, overwrite: true)
+        ant.unzip(src: assetsZip, dest: serverAssetsDir, overwrite: true)
     }
 }
 
@@ -214,12 +249,8 @@ tasks.register("fetchUnpacked") {
         if (unpackedDir.exists() && unpackedDir.listFiles()?.length > 0) {
             throw new IllegalStateException("data/unpacked exists and is not empty; refusing to overwrite")
         }
-        exec {
-            commandLine "git", "clone", "git@github.com:Ranork/Hytale-Server-Unpacked.git", unpackedDir.absolutePath
-        }
-        exec {
-            commandLine "chown", "-R", "1000:1000", unpackedDir.absolutePath
-        }
+        runCommand(["git", "clone", "git@github.com:Ranork/Hytale-Server-Unpacked.git", unpackedDir.absolutePath])
+        runCommand(["chown", "-R", "1000:1000", unpackedDir.absolutePath])
     }
 }
 
@@ -246,7 +277,7 @@ tasks.register("assetsZip", Zip) {
     archiveExtension.set("zip")
     destinationDirectory.set(distDir)
     zip64 = true
-    from(assetsDir) {
+    from(userAssetsDir) {
         into("")
         exclude "**/.gitkeep"
     }
@@ -296,16 +327,11 @@ tasks.register("composeDown") {
             throw new IllegalStateException("Missing compose file at ${composeFile}")
         }
         def psOutput = new ByteArrayOutputStream()
-        exec {
-            commandLine "docker", "compose", "-f", composeFile.absolutePath, "ps", "-q"
-            standardOutput = psOutput
-            ignoreExitValue true
-        }
-        if (psOutput.toString().trim()) {
+        def psResult = runCommand(["docker", "compose", "-f", composeFile.absolutePath, "ps", "-q"], true, null, true)
+        psOutput.write(psResult.output.getBytes())
+        if (psResult.output.toString().trim()) {
             logger.lifecycle("Stopping existing compose stack before rebuild...")
-            exec {
-                commandLine "docker", "compose", "-f", composeFile.absolutePath, "down"
-            }
+            runCommand(["docker", "compose", "-f", composeFile.absolutePath, "down"])
         } else {
             logger.lifecycle("No running compose stack detected; nothing to stop.")
         }
@@ -325,8 +351,6 @@ tasks.register("start") {
             throw new IllegalStateException("Missing compose file at ${composeFile}")
         }
         logger.lifecycle("Starting docker compose in foreground (logs attached)...")
-        exec {
-            commandLine "docker", "compose", "-f", composeFile.absolutePath, "up"
-        }
+        runCommand(["docker", "compose", "-f", composeFile.absolutePath, "up"])
     }
 }

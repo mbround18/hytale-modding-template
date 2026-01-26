@@ -36,14 +36,6 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Cache Hytale Server JAR
-        uses: actions/cache@v4
-        with:
-          path: data/server/Server/HytaleServer.jar
-          key: hytale-server-jar-${{ hashFiles('compose.yml') }}
-          restore-keys: |
-            hytale-server-jar-
-
       - name: Build with Gradle
         run: ./gradlew build --no-daemon
         env:

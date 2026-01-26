@@ -1,20 +1,40 @@
+// ============================================================================
+// Plugin Configuration
+// ============================================================================
 plugins {
     id 'base'
 }
 
+// ============================================================================
+// Project Properties
+// ============================================================================
 ext {
+    // Directory structure
     dataDir = file("data")
     serverDir = file("data/server")
-    userAssetsDir = file("assets") // user-authored assets for packing
-    serverAssetsDir = file("data/assets") // extracted vanilla assets from server Assets.zip
     unpackedDir = file("data/unpacked")
+    distDir = file("dist")
+    
+    // Assets
+    userAssetsDir = file("assets")              // User-authored assets for packing
+    serverAssetsDir = file("data/assets")       // Extracted vanilla assets from server
+    
+    // Server files
     serverJar = file("data/server/Server/HytaleServer.jar")
     assetsZip = file("data/server/Assets.zip")
-    composeFile = file("compose.yml")
-    distDir = file("dist")
     modsDir = file("data/server/Server/mods")
+    
+    // Docker
+    composeFile = file("compose.yml")
 }
 
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/**
+ * Execute a shell command with optional error handling and output capture
+ */
 def runCommand(List<String> command, boolean ignoreExitValue = false, File workingDir = null, boolean quiet = false) {
     def processBuilder = new ProcessBuilder(command)
     if (workingDir != null) {
@@ -39,18 +59,23 @@ def runCommand(List<String> command, boolean ignoreExitValue = false, File worki
     return [exitCode: exitCode, output: output.toString()]
 }
 
+/**
+ * Ensure directory exists with proper ownership (skipped in CI)
+ */
 def ensureDirectoryOwned(File dir) {
     if (!dir.exists()) {
         if (!dir.mkdirs()) {
             throw new IllegalStateException("Failed to create directory ${dir}")
         }
     }
-    // Skip chown in CI environments (GitHub Actions, etc.)
     if (!System.getenv("CI")) {
         runCommand(["chown", "1000:1000", dir.absolutePath])
     }
 }
 
+/**
+ * Wait for a file to appear with timeout
+ */
 def waitForFile(File target, int timeoutSeconds, int intervalSeconds) {
     long deadline = System.currentTimeMillis() + (timeoutSeconds * 1000L)
     while (System.currentTimeMillis() < deadline) {
@@ -60,6 +85,17 @@ def waitForFile(File target, int timeoutSeconds, int intervalSeconds) {
         sleep(intervalSeconds * 1000L)
     }
     throw new IllegalStateException("Timed out waiting for ${target}")
+}
+
+// ============================================================================
+// Setup Tasks
+// Tasks for initial project setup: directories, server JAR, assets, and API
+// ============================================================================
+
+tasks.register("setup") {
+    group = "setup"
+    description = "Prepare local data, assets, and unpacked API"
+    dependsOn "ensureDirectories", "ensureServerJar", "unpackAssets", "fetchUnpacked"
 }
 
 tasks.register("ensureDirectories") {
@@ -86,6 +122,15 @@ tasks.register("ensureDirectories") {
                 }
             }
         }
+    }
+}
+
+tasks.register("ensureModsDir") {
+    group = "setup"
+    description = "Ensure server mods directory exists with uid:gid 1000:1000"
+    dependsOn "ensureDirectories"
+    doLast {
+        ensureDirectoryOwned(modsDir)
     }
 }
 
@@ -254,20 +299,10 @@ tasks.register("fetchUnpacked") {
     }
 }
 
-tasks.register("setup") {
-    group = "setup"
-    description = "Prepare local data, assets, and unpacked API"
-    dependsOn "ensureDirectories", "ensureServerJar", "unpackAssets", "fetchUnpacked"
-}
-
-tasks.register("ensureModsDir") {
-    group = "setup"
-    description = "Ensure server mods directory exists with uid:gid 1000:1000"
-    dependsOn "ensureDirectories"
-    doLast {
-        ensureDirectoryOwned(modsDir)
-    }
-}
+// ============================================================================
+// Build Tasks
+// Tasks for building and packaging mod artifacts
+// ============================================================================
 
 tasks.register("assetsZip", Zip) {
     group = "build"
@@ -297,6 +332,11 @@ tasks.register("copyPluginJarToDist", Copy) {
     }
 }
 
+// ============================================================================
+// Distribution Tasks
+// Tasks for installing built artifacts to server mods directory
+// ============================================================================
+
 tasks.register("installToServerMods") {
     group = "distribution"
     description = "Copy jar and assets.zip into data/server/Server/mods"
@@ -311,13 +351,10 @@ tasks.register("installToServerMods") {
     }
 }
 
-tasks.named("assemble") {
-    dependsOn "copyPluginJarToDist", "assetsZip"
-}
-
-tasks.named("build") {
-    dependsOn "installToServerMods"
-}
+// ============================================================================
+// Application Lifecycle Tasks
+// Tasks for running and managing the Hytale server via Docker
+// ============================================================================
 
 tasks.register("composeDown") {
     group = "application"
@@ -338,10 +375,6 @@ tasks.register("composeDown") {
     }
 }
 
-tasks.named("build") {
-    mustRunAfter("composeDown")
-}
-
 tasks.register("start") {
     group = "application"
     description = "Run build then start docker compose in foreground"
@@ -354,3 +387,22 @@ tasks.register("start") {
         runCommand(["docker", "compose", "-f", composeFile.absolutePath, "up"])
     }
 }
+
+// ============================================================================
+// Gradle Lifecycle Customization
+// Modify standard Gradle build lifecycle tasks
+// ============================================================================
+
+tasks.named("assemble") {
+    dependsOn "copyPluginJarToDist", "assetsZip"
+}
+
+tasks.named("build") {
+    dependsOn "installToServerMods"
+    mustRunAfter "composeDown"
+}
+
+// ============================================================================
+// Error Reporting Hook
+// Provide helpful error context on build failure
+// ============================================================================

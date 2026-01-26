@@ -21,7 +21,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Java 25
+      - name: Set up Java 21 (for Gradle daemon)
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0, https://github.com/actions/setup-java/releases/tag/v5.2.0
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Set up Java 25 (for plugin compilation)
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0, https://github.com/actions/setup-java/releases/tag/v5.2.0
         with:
           distribution: "temurin"

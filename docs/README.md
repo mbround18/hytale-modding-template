@@ -56,3 +56,10 @@ What `setup` does:
 - Refresh server files: delete `data/server/Server/HytaleServer.jar` then rerun `gradle setup`.
 - Refresh assets: delete `data/assets` and rerun `gradle setup` to re-unzip from `Assets.zip`.
 - Update API docs: remove `data/unpacked` and rerun `gradle setup` to reclone.
+
+## Acknowledgments
+
+Special thanks to:
+
+- **Ranork** - [Hytale-Server-Unpacked](https://github.com/Ranork/Hytale-Server-Unpacked) for decompiled server assets and API documentation
+- **mbround18** - [mbround18/hytale](https://hub.docker.com/r/mbround18/hytale) Docker image for streamlined local development and testing

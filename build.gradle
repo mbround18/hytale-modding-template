@@ -95,7 +95,7 @@ def waitForFile(File target, int timeoutSeconds, int intervalSeconds) {
 tasks.register("setup") {
     group = "setup"
     description = "Prepare local data, assets, and unpacked API"
-    dependsOn "ensureDirectories", "ensureServerJar", "unpackAssets", "fetchUnpacked"
+    dependsOn "ensureDirectories", "ensureServerJar", "unpackAssets", "unpackJar"
 }
 
 tasks.register("ensureDirectories") {
@@ -283,21 +283,7 @@ tasks.register("unpackAssets") {
     }
 }
 
-tasks.register("fetchUnpacked") {
-    group = "setup"
-    description = "Clone Ranork/Hytale-Server-Unpacked into data/unpacked (no submodule)"
-    dependsOn "ensureDirectories"
-    onlyIf {
-        !new File(unpackedDir, ".git").exists()
-    }
-    doLast {
-        if (unpackedDir.exists() && unpackedDir.listFiles()?.length > 0) {
-            throw new IllegalStateException("data/unpacked exists and is not empty; refusing to overwrite")
-        }
-        runCommand(["git", "clone", "git@github.com:Ranork/Hytale-Server-Unpacked.git", unpackedDir.absolutePath])
-        runCommand(["chown", "-R", "1000:1000", unpackedDir.absolutePath])
-    }
-}
+
 
 // ============================================================================
 // Build Tasks
@@ -314,7 +300,12 @@ tasks.register("assetsZip", Zip) {
     zip64 = true
     from(userAssetsDir) {
         into("")
-        exclude "**/.gitkeep"
+        eachFile { FileCopyDetails details ->
+            // Exclude .gitkeep files (and their parent directories if empty)
+            if (details.name == ".gitkeep") {
+                details.exclude()
+            }
+        }
     }
     doFirst {
         distDir.mkdirs()
@@ -348,6 +339,27 @@ tasks.register("installToServerMods") {
             into(modsDir)
             duplicatesStrategy = DuplicatesStrategy.INCLUDE
         }
+    }
+}
+
+// ============================================================================
+// Utility Tasks
+// ============================================================================
+
+tasks.register("unpackJar") {
+    group = "setup"
+    description = "Unpack data/server/Server/HytaleServer.jar into data/unpacked"
+    dependsOn "ensureDirectories", "ensureServerJar"
+    onlyIf { !unpackedDir.exists() || unpackedDir.listFiles()?.length == 0 }
+    doLast {
+        if (unpackedDir.exists()) {
+            unpackedDir.deleteDir()
+        }
+        copy {
+            from(zipTree(serverJar))
+            into(unpackedDir)
+        }
+        logger.lifecycle("Unpacked ${serverJar} into ${unpackedDir}")
     }
 }
 

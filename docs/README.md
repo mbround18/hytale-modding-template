@@ -8,7 +8,6 @@ This template splits mod work into two parts:
 ## Prerequisites
 
 - Docker and Docker Compose (v2 syntax).
-- Git with access to `git@github.com:Ranork/Hytale-Server-Unpacked.git`.
 - Java 25 installed (for Gradle wrapper).
 - `unzip` available on PATH.
 
@@ -25,7 +24,7 @@ What `setup` does:
 - Ensures `data/server`, `data/assets`, and `data/unpacked` exist and are owned by `1000:1000`.
 - If `data/server/Server/HytaleServer.jar` is missing, starts `docker compose -f compose.yml up` and waits until the jar is produced, then tears the stack down.
 - Unzips `data/server/Assets.zip` into `data/assets` (overwrites existing files).
-- Clones `git@github.com:Ranork/Hytale-Server-Unpacked.git` into `data/unpacked` (skips if a repo already exists there).
+- Unpacks the server jar into `data/unpacked` using introspection.
 
 ## Working in the template
 
@@ -61,5 +60,4 @@ What `setup` does:
 
 Special thanks to:
 
-- **Ranork** - [Hytale-Server-Unpacked](https://github.com/Ranork/Hytale-Server-Unpacked) for decompiled server assets and API documentation
 - **mbround18** - [mbround18/hytale](https://hub.docker.com/r/mbround18/hytale) Docker image for streamlined local development and testing
